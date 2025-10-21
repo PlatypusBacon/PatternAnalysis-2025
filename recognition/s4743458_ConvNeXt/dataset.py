@@ -53,7 +53,6 @@ def check_sizes(dir, n_workers: int = 8) -> pd.Series:
 def get_train_transforms(img_size: int = 224):
     """
     Training transforms with data augmentation.
-    For grayscale medical images.
     """
     return transforms.Compose([
         transforms.Resize((img_size, img_size)),
@@ -73,7 +72,6 @@ def get_train_transforms(img_size: int = 224):
 def get_test_transforms(img_size: int = 224):
     """
     Test/validation transforms without augmentation.
-    For grayscale medical images.
     """
     return transforms.Compose([
         transforms.Resize((img_size, img_size)),

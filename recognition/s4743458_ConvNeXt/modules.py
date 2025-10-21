@@ -53,8 +53,11 @@ class ConvNeXtBlock(nn.Module):
                  layer_scale_init: float = 1e-6,
                  mlp_ratio: float = 4.0):
         super().__init__()
+        # Depthwise Conv
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim) # groups = dim for depthwise
+        # 
         self.norm = LayerNorm2d(dim)
+
 
         # conv2d
 
