@@ -26,7 +26,7 @@ class LayerNorm2d(nn.Module):
     """
     def __init__(self, normalized_shape: int, eps: float = 1e-6):
         super().__init__()
-        self.layer_norm = nn.LayerNorm(normalized_shape, eps=eps)
+        self.layer_norm = nn.GroupNorm(1, normalized_shape, eps=eps)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.layer_norm(x)
@@ -131,7 +131,7 @@ class ConvNeXt(nn.Module):
                 *[ConvNeXtBlock(
                     dim=dims[i],
                     drop_path=dp_rates[cur + j],
-                    layer_scale_init_value=layer_scale_init
+                    layer_scale_init=layer_scale_init
                 ) for j in range(depths[i])]
             )
             self.stages.append(stage)
