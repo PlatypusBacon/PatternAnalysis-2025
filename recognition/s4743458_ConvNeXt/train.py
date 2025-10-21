@@ -1,68 +1,303 @@
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from dataset import make_dataloaders
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score, confusion_matrix
+from torch.optim.lr_scheduler import CosineAnnealingLR, OneCycleLR
 import modules
+import numpy as np
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import seaborn as sns
+from datetime import datetime
 
-def train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=10, lr=1e-4, device='cuda'):
+class AverageMeter:
+    """Computes and stores the average and current value."""
+    def __init__(self):
+        self.reset()
+    
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+    
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+def calculate_metrics(y_true, y_pred, y_probs):
+    """Calculate comprehensive metrics."""
+    accuracy = accuracy_score(y_true, y_pred)
+    precision, recall, f1, _ = precision_recall_fscore_support(
+        y_true, y_pred, average='binary', zero_division=0
+    )
+    
+    # AUC-ROC (using probability of positive class)
+    try:
+        auc = roc_auc_score(y_true, y_probs[:, 1])
+    except:
+        auc = 0.0
+    
+    return {
+        'accuracy': accuracy,
+        'precision': precision,
+        'recall': recall,
+        'f1': f1,
+        'auc': auc
+    }
+
+def train_epoch(model, loader, criterion, optimizer, device, epoch):
+    """Train for one epoch."""
+    model.train()
+    
+    losses = AverageMeter()
+    all_preds = []
+    all_labels = []
+    all_probs = []
+    
+    pbar = tqdm(loader, desc=f'Epoch {epoch} [Train]')
+    for images, labels in pbar:
+        images = images.to(device)
+        labels = labels.to(device)
+        
+        # Forward pass
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+        
+        # Backward pass
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        # Record metrics
+        losses.update(loss.item(), images.size(0))
+        
+        # Get predictions
+        probs = torch.softmax(outputs, dim=1)
+        preds = torch.argmax(probs, dim=1)
+        
+        all_preds.extend(preds.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
+        all_probs.extend(probs.detach().cpu().numpy())
+        
+        # Update progress bar
+        pbar.set_postfix({'loss': f'{losses.avg:.4f}'})
+    
+    # Calculate metrics
+    metrics = calculate_metrics(
+        np.array(all_labels), 
+        np.array(all_preds),
+        np.array(all_probs)
+    )
+    metrics['loss'] = losses.avg
+    
+    return metrics
+
+
+def validate(model, loader, criterion, device, epoch):
+    """Validate the model."""
+    model.eval()
+    
+    losses = AverageMeter()
+    all_preds = []
+    all_labels = []
+    all_probs = []
+    
+    pbar = tqdm(loader, desc=f'Epoch {epoch} [Val]')
+    with torch.no_grad():
+        for images, labels in pbar:
+            images = images.to(device)
+            labels = labels.to(device)
+            
+            # Forward pass
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            
+            # Record metrics
+            losses.update(loss.item(), images.size(0))
+            
+            # Get predictions
+            probs = torch.softmax(outputs, dim=1)
+            preds = torch.argmax(probs, dim=1)
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+            all_probs.extend(probs.cpu().numpy())
+            
+            # Update progress bar
+            pbar.set_postfix({'loss': f'{losses.avg:.4f}'})
+    
+    # Calculate metrics
+    metrics = calculate_metrics(
+        np.array(all_labels), 
+        np.array(all_preds),
+        np.array(all_probs)
+    )
+    metrics['loss'] = losses.avg
+    
+    return metrics, np.array(all_labels), np.array(all_preds)
+
+def train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=10, lr=1e-4, device='cuda', save_dir='checkpoints', resume_from=None):
     device = torch.device(device if torch.cuda.is_available() else 'cpu')
     
     # Dataloaders
-    train_loader, val_loader = make_dataloaders(data_dir, batch_size=batch_size, img_size=224)
-    
+    train_loader, test_loader = make_dataloaders(data_dir, batch_size=batch_size, img_size=224)
+    if resume_from is None:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        save_dir = os.path.join(save_dir, f'ConvNeXt_{timestamp}')
+        os.makedirs(save_dir, exist_ok=True)
+    else:
+        # If resuming, use the same directory as the checkpoint
+        save_dir = os.path.dirname(resume_from)
     # Model
     model = modules.ConvNeXt(
         depths=[3, 3, 27, 3],
         dims=[96, 192, 384, 768],
         num_classes=2
     ).to(device)
-    
+
+    best_val_acc = 0.0
+    start_epoch = 1
+
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=lr)
+    scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-6)
+    if resume_from is not None:
+        start_epoch, best_val_acc, loaded_metrics = load_checkpoint(
+            resume_from, model, optimizer, scheduler, device
+        )
+        start_epoch += 1  # Start from next epoch
+    history = {
+        'train_loss': [], 'val_loss': [],
+        'train_acc': [], 'val_acc': [],
+        'train_f1': [], 'val_f1': [],
+        'train_auc': [], 'val_auc': []
+    }
+    for epoch in range(start_epoch, num_epochs + 1):
+        train_metrics = train_epoch(model, train_loader, criterion, optimizer, device, epoch)
+        
+        # Validate
+        val_metrics, val_labels, val_preds = validate(model, test_loader, criterion, device, epoch)
+        
+        # Update scheduler
+        scheduler.step()
+        
+        # Record history
+        history['train_loss'].append(train_metrics['loss'])
+        history['val_loss'].append(val_metrics['loss'])
+        history['train_acc'].append(train_metrics['accuracy'])
+        history['val_acc'].append(val_metrics['accuracy'])
+        history['train_f1'].append(train_metrics['f1'])
+        history['val_f1'].append(val_metrics['f1'])
+        history['train_auc'].append(train_metrics['auc'])
+        history['val_auc'].append(val_metrics['auc'])
+        
+        # Print metrics
+        print(f"\nEpoch {epoch}/{num_epochs}")
+        print(f"Train - Loss: {train_metrics['loss']:.4f}, Acc: {train_metrics['accuracy']:.4f}, "
+              f"F1: {train_metrics['f1']:.4f}, AUC: {train_metrics['auc']:.4f}")
+        print(f"Val   - Loss: {val_metrics['loss']:.4f}, Acc: {val_metrics['accuracy']:.4f}, "
+              f"F1: {val_metrics['f1']:.4f}, AUC: {val_metrics['auc']:.4f}")
+        print(f"LR: {optimizer.param_groups[0]['lr']:.6f}")
+        
+        # Save checkpoint
+        is_best = val_metrics['accuracy'] > best_val_acc
+        if is_best:
+            best_val_acc = val_metrics['accuracy']
+        
+        save_checkpoint(model, optimizer, scheduler, epoch, val_metrics, save_dir, is_best)
     
-    for epoch in range(1, num_epochs + 1):
-        # Training
-        model.train()
-        train_loss, correct, total = 0.0, 0, 0
-        for images, labels in train_loader:
-            images, labels = images.to(device), labels.to(device)
+    
+    print(f"\nResults saved to: {save_dir}")
+    
+    return model, history
+
+def validate(model, loader, criterion, device, epoch):
+    """Validate the model."""
+    model.eval()
+    
+    losses = AverageMeter()
+    all_preds = []
+    all_labels = []
+    all_probs = []
+    
+    pbar = tqdm(loader, desc=f'Epoch {epoch} [Val]')
+    with torch.no_grad():
+        for images, labels in pbar:
+            images = images.to(device)
+            labels = labels.to(device)
             
-            optimizer.zero_grad()
+            # Forward pass
             outputs = model(images)
             loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
             
-            train_loss += loss.item() * images.size(0)
-            preds = outputs.argmax(dim=1)
-            correct += (preds == labels).sum().item()
-            total += labels.size(0)
-        
-        train_loss /= total
-        train_acc = correct / total
-        
-        # Validation
-        model.eval()
-        val_loss, correct, total = 0.0, 0, 0
-        with torch.no_grad():
-            for images, labels in val_loader:
-                images, labels = images.to(device), labels.to(device)
-                outputs = model(images)
-                loss = criterion(outputs, labels)
-                
-                val_loss += loss.item() * images.size(0)
-                preds = outputs.argmax(dim=1)
-                correct += (preds == labels).sum().item()
-                total += labels.size(0)
-        
-        val_loss /= total
-        val_acc = correct / total
-        
-        print(f"Epoch {epoch}/{num_epochs} | "
-              f"Train Loss: {train_loss:.4f}, Acc: {train_acc:.4f} | "
-              f"Val Loss: {val_loss:.4f}, Acc: {val_acc:.4f}")
+            # Record metrics
+            losses.update(loss.item(), images.size(0))
+            
+            # Get predictions
+            probs = torch.softmax(outputs, dim=1)
+            preds = torch.argmax(probs, dim=1)
+            
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+            all_probs.extend(probs.cpu().numpy())
+            
+            # Update progress bar
+            pbar.set_postfix({'loss': f'{losses.avg:.4f}'})
     
-    return model
+    # Calculate metrics
+    metrics = calculate_metrics(
+        np.array(all_labels), 
+        np.array(all_preds),
+        np.array(all_probs)
+    )
+    metrics['loss'] = losses.avg
+    
+    return metrics, np.array(all_labels), np.array(all_preds)
+
+def save_checkpoint(model, optimizer, scheduler, epoch, metrics, save_dir, is_best=False):
+    """Save model checkpoint."""
+    checkpoint = {
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict(),
+        'metrics': metrics
+    }
+    
+    torch.save(checkpoint, os.path.join(save_dir, 'latest.pth'))
+    
+    if is_best:
+        torch.save(checkpoint, os.path.join(save_dir, 'best.pth'))
+        print(f"Saved best model (Accuracy: {metrics['accuracy']:.4f})")
+
+def load_checkpoint(checkpoint_path, model, optimizer=None, scheduler=None, device='cuda'):
+    print(f"\nLoading checkpoint from: {checkpoint_path}")
+    
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    
+    model.load_state_dict(checkpoint['model_state_dict'])
+    
+    if optimizer is not None and 'optimizer_state_dict' in checkpoint:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    
+    if scheduler is not None and 'scheduler_state_dict' in checkpoint:
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+    
+    # Get epoch and metrics
+    start_epoch = checkpoint.get('epoch', 0)
+    metrics = checkpoint.get('metrics', {})
+    best_val_acc = metrics.get('accuracy', 0.0)
+    
+    print(f"Resuming from epoch {start_epoch}")
+    print(f"Previous best accuracy: {best_val_acc:.4f}")
+    
+    return start_epoch, best_val_acc, metrics
 
 if __name__ == "__main__":
-    model = train()
+    # Train model
+    model, history = train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=50, lr=1e-4)
