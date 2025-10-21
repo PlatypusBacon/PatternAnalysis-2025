@@ -150,4 +150,11 @@ class ConvNeXt(nn.Module):
             nn.init.trunc_normal_(m.weight, std=0.02)
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
-
+    def forward(self, x):
+        x = self.stem(x)
+        for stage in self.stages:
+            x = stage(x)
+        x = x.mean([-2, -1])  # (B, C, H, W) -> (B, C)
+        x = self.norm(x)
+        x = self.head(x)
+        return x
