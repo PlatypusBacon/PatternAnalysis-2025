@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from typing import List, Optional
+from typing import List, Optional, Tuple
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 if not torch.cuda.is_available():
     print("Warning CUDA not Found. Using CPU")
@@ -33,9 +33,21 @@ class LayerNorm2d(nn.Module):
 
         
 class DropPath(nn.Module):
-    def __init__(self, prob: float = 0.0):
+    """
+    Drops entire block with probability
+    """
+    def __init__(self, prob: float = 0.0, inplace: bool = False):
         super().__init__()
         self.prob = prob
+        self.inplace = inplace
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.training and self.prob > 0:
+            keep_prob = 1.0-self.prob
+            mask_shape: Tuple[int] = (x.shape[0],) + (1,) * (x.ndim - 1) 
+            mask: torch.Tensor = x.new_empty(mask_shape).bernoulli_(keep_prob)
+            mask.div_(keep_prob)
+            x = x * mask
+        return x
 
 class ConvNeXtBlock(nn.Module):
     """
@@ -57,11 +69,33 @@ class ConvNeXtBlock(nn.Module):
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim) # groups = dim for depthwise
         # 
         self.norm = LayerNorm2d(dim)
-
-
         # conv2d
+        hidden_dim = int(dim * mlp_ratio)
+        self.conv1 = nn.Conv2d(dim, hidden_dim, kernel_size=1)
+        self.act = nn.GELU()
+        self.conv2 = nn.Conv2d(hidden_dim, dim, kernel_size=1)
+
+        self.gamma = nn.Parameter(
+            layer_scale_init * torch.ones(dim),
+            requires_grad=True
+        ) if layer_scale_init > 0 else None
+        
+        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        input = x
+        x = self.dwconv(x)
+        x = self.norm(x)
+        x = self.conv1(x)
+        x = self.act(x)
+        x = self.conv2(x)
+        if self.gamma is not None:
+            x = self.gamma.view(1, -1, 1, 1) * x
+        x = self.drop_path(x)
+        x = x + input
+        return x
 
 
+        
 class ConvNeXt(nn.Module):
     """
     ConvNeXt model
