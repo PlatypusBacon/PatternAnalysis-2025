@@ -6,6 +6,8 @@ This project focuses on classifying Alzheimer's disease (AD) as well as normal c
 ## Model Architecture
 
 ConvNeXt is structured combining aspects of convolutional neural networks (CNNs), as well as successful elements from Vision Transformers (ViTs). This is done through several innovations, namely the patchify stem which uses a 4x4 (stride 4) convolution rather than a 7x7 as the first stage, resembling the patches of ViTs.
+The network also uses GELU activations instead of ReLU, and Layer in in place of Batch Normalisation
+(Liu et al., 2022)
 
 The full ConvNeXt architecture can be seen below:
 
@@ -19,7 +21,6 @@ The ConvNeXt block is defined as seen below:
 
 ![ConvNeXt block](ConvNeXt-structure-2.webp)
 
-(Liu et al., 2022)
 
 ## Dataset Overview
 The image dataset is split as seen in the below file tree
@@ -50,6 +51,16 @@ Split of classes:
 [4460 4540] - Test
 This is a very well balanced dataset, and class weights can probably be ignored for the loss function. 
 Considering this classification problem, cross entropy loss will be used as this loss function.
+
+### Data augmentation
+To improve generalisation and reduce overfitting from the model, data augmentation techniques were applied to the training set before training.
+These were performed as follows:
+
+* Horizontal flip
+* Rotation
+* Colour 
+* Affine
+* Gaussian Blur
 
 ## Results
 
