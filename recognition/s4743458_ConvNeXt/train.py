@@ -11,6 +11,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime
+import torchvision.transforms as T
 
 class AverageMeter:
     """Computes and stores the average and current value."""
@@ -141,30 +142,33 @@ def validate(model, loader, criterion, device, epoch):
     
     return metrics, np.array(all_labels), np.array(all_preds)
 
-def train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=10, lr=1e-4, device='cuda', save_dir='checkpoints', resume_from=None):
+def train(data_dir='ADNI/AD_NC', batch_size=32, num_epochs=10, lr=3e-5, device='cuda', save_dir='checkpoints', resume_from=None, drop_path_rate=0.1, layer_scale=1e-6, weight_decay=0.1):
     device = torch.device(device if torch.cuda.is_available() else 'cpu')
     
     # Dataloaders
     train_loader, test_loader = make_dataloaders(data_dir, batch_size=batch_size, img_size=224)
     if resume_from is None:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_dir = os.path.join(save_dir, f'ConvNeXt_{timestamp}')
+        save_dir = os.path.join(save_dir, f'ConvNeXt_fit_{timestamp}')
         os.makedirs(save_dir, exist_ok=True)
     else:
         # If resuming, use the same directory as the checkpoint
         save_dir = os.path.dirname(resume_from)
     # Model
     model = modules.ConvNeXt(
-        depths=[3, 3, 27, 3],
+        in_chans=1,
+        depths=[3, 3, 9, 3],
         dims=[96, 192, 384, 768],
-        num_classes=2
+        num_classes=2,
+        drop_path_prob=drop_path_rate,
+        layer_scale_init=layer_scale
     ).to(device)
 
     best_val_acc = 0.0
     start_epoch = 1
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.05)
+    optimizer = optim.AdamW(model.parameters(),lr=lr,weight_decay=weight_decay,betas=(0.9, 0.999))
     scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-6)
     if resume_from is not None:
         start_epoch, best_val_acc, loaded_metrics = load_checkpoint(
@@ -300,4 +304,5 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, scheduler=None, devi
 
 if __name__ == "__main__":
     # Train model
-    model, history = train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=50, lr=1e-4)
+
+    model, history = train(data_dir='ADNI/AD_NC', batch_size=32, num_epochs=100, lr=1e-4, drop_path_rate=0.2, layer_scale=1e-6, weight_decay=0.1)
