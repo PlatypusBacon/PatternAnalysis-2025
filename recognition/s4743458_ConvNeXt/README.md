@@ -21,6 +21,19 @@ The ConvNeXt block is defined as seen below:
 
 ![ConvNeXt block](ConvNeXt-structure-2.webp)
 
+### ConvNeXt class
+
+In `modules.py`, the class is defined with a stem, stages, normalisation and head. This performs operations in the following stages:
+
+1. The stem performs Conv2d and LayerNorm2d
+2. Stages perform downsampling and then apply a ConvNeXt block (no downsample on first layer)
+    1. In the ConvNeXt block, first a depthwise conv is performed (Conv2d(groups=dim))
+    2. LayerNorm2d
+    3. Conv2d
+    4. GELU
+    5. Conv2d
+3. LayerNorm2d
+4. Linear
 
 ## Dataset Overview
 The image dataset is split as seen in the below file tree
@@ -62,7 +75,19 @@ These were performed as follows:
 * Affine
 * Gaussian Blur
 
+## Training
+To train the ConvNeXt model, the following command is used:
+
+`python train.py [--checkpoint checkpoint_path]`
+
+This trains the model on the ADNI dataset, saving the model as checkpoints to `/checkpoints/{model name}`. If the checkpoint argument is included, this resumes training from the specified checkpoint.
+The training script additionally saves a confusion matrix and training results images to the save directory
+
+## Predicting
+
+
 ## Results
 
+
 ## References
-Liu, Z., Mao, H., Wu, C.-Y., Feichtenhofer, C., Darrell, T. and Xie, S. (2022). A ConvNet for the 2020s. [online] Available at: https://arxiv.org/pdf/2201.03545.
+[1] Liu, Z., Mao, H., Wu, C.-Y., Feichtenhofer, C., Darrell, T. and Xie, S. (2022). A ConvNet for the 2020s. [online] Available at: https://arxiv.org/pdf/2201.03545.

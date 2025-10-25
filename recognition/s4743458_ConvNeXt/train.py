@@ -6,6 +6,7 @@ from dataset import make_dataloaders
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score, confusion_matrix
 from torch.optim.lr_scheduler import CosineAnnealingLR, OneCycleLR
 import modules
+import sys
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -29,6 +30,64 @@ class AverageMeter:
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+def plot_training_history(history, save_dir):
+    """Plot training history."""
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    
+    # Loss
+    axes[0, 0].plot(history['train_loss'], label='Train')
+    axes[0, 0].plot(history['val_loss'], label='Validation')
+    axes[0, 0].set_xlabel('Epoch')
+    axes[0, 0].set_ylabel('Loss')
+    axes[0, 0].set_title('Training and Validation Loss')
+    axes[0, 0].legend()
+    axes[0, 0].grid(True)
+    
+    # Accuracy
+    axes[0, 1].plot(history['train_acc'], label='Train')
+    axes[0, 1].plot(history['val_acc'], label='Validation')
+    axes[0, 1].set_xlabel('Epoch')
+    axes[0, 1].set_ylabel('Accuracy')
+    axes[0, 1].set_title('Training and Validation Accuracy')
+    axes[0, 1].legend()
+    axes[0, 1].grid(True)
+    
+    # F1 Score
+    axes[1, 0].plot(history['train_f1'], label='Train')
+    axes[1, 0].plot(history['val_f1'], label='Validation')
+    axes[1, 0].set_xlabel('Epoch')
+    axes[1, 0].set_ylabel('F1 Score')
+    axes[1, 0].set_title('Training and Validation F1')
+    axes[1, 0].legend()
+    axes[1, 0].grid(True)
+    
+    # AUC
+    axes[1, 1].plot(history['train_auc'], label='Train')
+    axes[1, 1].plot(history['val_auc'], label='Validation')
+    axes[1, 1].set_xlabel('Epoch')
+    axes[1, 1].set_ylabel('AUC-ROC')
+    axes[1, 1].set_title('Training and Validation AUC')
+    axes[1, 1].legend()
+    axes[1, 1].grid(True)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_dir, 'training_history.png'))
+    plt.close()
+
+def plot_confusion_matrix(y_true, y_pred, save_path, class_names=['AD', 'NC']):
+    """Plot and save confusion matrix."""
+    cm = confusion_matrix(y_true, y_pred)
+    
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=class_names, yticklabels=class_names)
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.title('Confusion Matrix')
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
 
 def calculate_metrics(y_true, y_pred, y_probs):
     """Calculate comprehensive metrics."""
@@ -149,7 +208,7 @@ def train(data_dir='ADNI/AD_NC', batch_size=32, num_epochs=10, lr=3e-5, device='
     train_loader, test_loader = make_dataloaders(data_dir, batch_size=batch_size, img_size=224)
     if resume_from is None:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_dir = os.path.join(save_dir, f'ConvNeXt_fit_{timestamp}')
+        save_dir = os.path.join(save_dir, f'ConvNeXt_a_bit_smaller_{timestamp}')
         os.makedirs(save_dir, exist_ok=True)
     else:
         # If resuming, use the same directory as the checkpoint
@@ -157,8 +216,8 @@ def train(data_dir='ADNI/AD_NC', batch_size=32, num_epochs=10, lr=3e-5, device='
     # Model
     model = modules.ConvNeXt(
         in_chans=1,
-        depths=[3, 3, 9, 3],
-        dims=[96, 192, 384, 768],
+        depths=[2, 2, 6, 2],
+        dims=[64, 128, 256, 512],
         num_classes=2,
         drop_path_prob=drop_path_rate,
         layer_scale_init=layer_scale
@@ -215,7 +274,8 @@ def train(data_dir='ADNI/AD_NC', batch_size=32, num_epochs=10, lr=3e-5, device='
         
         save_checkpoint(model, optimizer, scheduler, epoch, val_metrics, save_dir, is_best)
     
-    
+    plot_training_history(history, save_dir)
+    plot_confusion_matrix(val_labels, val_preds, os.path.join(save_dir, 'confusion_matrix_final.png'))
     print(f"\nResults saved to: {save_dir}")
     
     return model, history
@@ -304,5 +364,11 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, scheduler=None, devi
 
 if __name__ == "__main__":
     # Train model
-
-    model, history = train(data_dir='ADNI/AD_NC', batch_size=32, num_epochs=100, lr=1e-4, drop_path_rate=0.2, layer_scale=1e-6, weight_decay=0.1)
+    if len(sys.argv) > 1:
+        if sys.argv[1] == '--checkpoint' and len(sys.argv) > 2:
+            checkpoint_path = sys.argv[2]
+            model, history = train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=100, lr=1e-4, drop_path_rate=0.3, layer_scale=1e-6, weight_decay=0.2, resume_from=checkpoint_path)
+        else:
+            print("Usage: python train.py [--checkpoint checkpoint_path]")
+    else:
+        model, history = train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=100, lr=1e-4, drop_path_rate=0.3, layer_scale=1e-6, weight_decay=0.2)

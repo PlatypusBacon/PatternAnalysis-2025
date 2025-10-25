@@ -63,7 +63,8 @@ class ConvNeXtBlock(nn.Module):
     def __init__(self, dim: int, 
                  drop_path: float = 0.0, 
                  layer_scale_init: float = 1e-6,
-                 mlp_ratio: float = 4.0):
+                 mlp_ratio: float = 4.0,
+                 dropout: float = 0.2):
         super().__init__()
         # Depthwise Conv
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim) # groups = dim for depthwise
@@ -73,6 +74,7 @@ class ConvNeXtBlock(nn.Module):
         hidden_dim = int(dim * mlp_ratio)
         self.conv1 = nn.Conv2d(dim, hidden_dim, kernel_size=1)
         self.act = nn.GELU()
+        self.dropout = nn.Dropout(dropout)
         self.conv2 = nn.Conv2d(hidden_dim, dim, kernel_size=1)
 
         self.gamma = nn.Parameter(
