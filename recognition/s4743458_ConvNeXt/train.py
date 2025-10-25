@@ -214,14 +214,7 @@ def train(data_dir='ADNI/AD_NC', batch_size=32, num_epochs=10, lr=3e-5, device='
         # If resuming, use the same directory as the checkpoint
         save_dir = os.path.dirname(resume_from)
     # Model
-    model = modules.ConvNeXt(
-        in_chans=1,
-        depths=[2, 2, 6, 2],
-        dims=[64, 128, 256, 512],
-        num_classes=2,
-        drop_path_prob=drop_path_rate,
-        layer_scale_init=layer_scale
-    ).to(device)
+    model = modules.convnext_small(drop_path_rate, layer_scale).to(device)
 
     best_val_acc = 0.0
     start_epoch = 1
@@ -367,8 +360,8 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         if sys.argv[1] == '--checkpoint' and len(sys.argv) > 2:
             checkpoint_path = sys.argv[2]
-            model, history = train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=100, lr=1e-4, drop_path_rate=0.3, layer_scale=1e-6, weight_decay=0.2, resume_from=checkpoint_path)
+            model, history = train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=100, lr=1e-4, drop_path_rate=0.5, layer_scale=1e-6, weight_decay=0.2, resume_from=checkpoint_path)
         else:
             print("Usage: python train.py [--checkpoint checkpoint_path]")
     else:
-        model, history = train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=100, lr=1e-4, drop_path_rate=0.3, layer_scale=1e-6, weight_decay=0.2)
+        model, history = train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=100, lr=1e-4, drop_path_rate=0.5, layer_scale=1e-6, weight_decay=0.2)

@@ -74,7 +74,7 @@ class ConvNeXtBlock(nn.Module):
         hidden_dim = int(dim * mlp_ratio)
         self.conv1 = nn.Conv2d(dim, hidden_dim, kernel_size=1)
         self.act = nn.GELU()
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout2d(dropout)
         self.conv2 = nn.Conv2d(hidden_dim, dim, kernel_size=1)
 
         self.gamma = nn.Parameter(
@@ -160,3 +160,23 @@ class ConvNeXt(nn.Module):
         x = self.norm(x)
         x = self.head(x)
         return x
+def convnext_small(drop_path_rate: float = 0.2, layer_scale: float = 1e-6):
+    model = ConvNeXt(
+            in_chans=1,
+            depths=[2, 2, 6, 2],
+            dims=[64, 128, 256, 512],
+            num_classes=2,
+            drop_path_prob=0.2,
+            layer_scale_init=1e-6
+        ).to(device)
+    return model
+def convnext_medium(drop_path_rate: float = 0.2, layer_scale: float = 1e-6):
+    model = ConvNeXt(
+        in_chans=1,
+        depths=[3, 3, 9, 3],
+        dims=[96, 192, 384, 768],
+        num_classes=2,
+        drop_path_prob=drop_path_rate,
+        layer_scale_init=layer_scale
+    ).to(device)
+    return model
