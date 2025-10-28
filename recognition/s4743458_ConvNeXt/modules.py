@@ -43,10 +43,10 @@ class DropPath(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.training and self.prob > 0:
             keep_prob = 1.0-self.prob
-            mask_shape: Tuple[int] = (x.shape[0],) + (1,) * (x.ndim - 1) 
-            mask: torch.Tensor = x.new_empty(mask_shape).bernoulli_(keep_prob)
-            mask.div_(keep_prob)
-            x = x * mask
+            mask_shape = (x.shape[0],) + (1,) * (x.ndim - 1) 
+            mask = x.new_empty(mask_shape).bernoulli_(keep_prob)
+            mask.floor_()
+            x = x.div(keep_prob) * mask
         return x
 
 class ConvNeXtBlock(nn.Module):
@@ -74,7 +74,6 @@ class ConvNeXtBlock(nn.Module):
         hidden_dim = int(dim * mlp_ratio)
         self.conv1 = nn.Conv2d(dim, hidden_dim, kernel_size=1)
         self.act = nn.GELU()
-        self.dropout = nn.Dropout2d(dropout)
         self.conv2 = nn.Conv2d(hidden_dim, dim, kernel_size=1)
 
         self.gamma = nn.Parameter(
@@ -108,7 +107,7 @@ class ConvNeXt(nn.Module):
                  dims: List[int] = [96,192,384,768],
                  drop_path_prob: float = 0.0,
                  layer_scale_init: float = 1e-6,
-                 head_init_scale: float = 1.0):
+                 head_init_scale: float = 1.0,):
         super().__init__()
         self.stem = nn.Sequential(
             nn.Conv2d(in_chans, dims[0], kernel_size=4, stride=4),
@@ -166,7 +165,7 @@ def convnext_small(drop_path_rate: float = 0.2, layer_scale: float = 1e-6):
             depths=[2, 2, 6, 2],
             dims=[64, 128, 256, 512],
             num_classes=2,
-            drop_path_prob=0.2,
+            drop_path_prob=0.5,
             layer_scale_init=1e-6
         ).to(device)
     return model
@@ -175,6 +174,17 @@ def convnext_medium(drop_path_rate: float = 0.2, layer_scale: float = 1e-6):
         in_chans=1,
         depths=[3, 3, 9, 3],
         dims=[96, 192, 384, 768],
+        num_classes=2,
+        drop_path_prob=drop_path_rate,
+        layer_scale_init=layer_scale
+    ).to(device)
+    return model
+
+def convnext_2(drop_path_rate: float = 0.2, layer_scale: float = 1e-6):
+    model = ConvNeXt(
+        in_chans=1,
+        depths=[3, 3, 27, 3],
+        dims=[128, 256, 512, 1024],
         num_classes=2,
         drop_path_prob=drop_path_rate,
         layer_scale_init=layer_scale

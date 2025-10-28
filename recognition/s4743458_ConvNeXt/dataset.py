@@ -53,13 +53,13 @@ def check_sizes(dir, n_workers: int = 8) -> pd.Series:
 def get_train_transforms(img_size: int = 224):
     return transforms.Compose([
         transforms.Resize((img_size, img_size)),
-        transforms.RandomHorizontalFlip(0.3),
-        transforms.RandomRotation(15),
-        transforms.RandomAffine(0, translate=(0.1, 0.1), scale=(0.9, 1.1)),
-        transforms.ColorJitter(brightness=0.3, contrast=0.3),
-        transforms.RandomApply([
-            transforms.GaussianBlur(3, sigma=(0.1, 1.0))
-        ], p=0.3),
+        #transforms.RandomHorizontalFlip(0.3),
+        #transforms.RandomRotation(15),
+        #transforms.RandomAffine(0, translate=(0.1, 0.1), scale=(0.9, 1.1)),
+        #transforms.ColorJitter(brightness=0.3, contrast=0.3),
+        #transforms.RandomApply([
+        #    transforms.GaussianBlur(3, sigma=(0.1, 1.0))
+        #], p=0.3),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5], std=[0.5]),
     ])

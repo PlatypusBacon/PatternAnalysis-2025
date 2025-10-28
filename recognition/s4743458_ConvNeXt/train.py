@@ -110,7 +110,24 @@ def calculate_metrics(y_true, y_pred, y_probs):
         'auc': auc
     }
 
-def train_epoch(model, loader, criterion, optimizer, device, epoch):
+def mixup_data(x, y, alpha=0.4):
+    """Mixup augmentation"""
+    if alpha > 0:
+        lam = np.random.beta(alpha, alpha)
+    else:
+        lam = 1
+    
+    batch_size = x.size()[0]
+    index = torch.randperm(batch_size).to(x.device)
+    
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+    y_a, y_b = y, y[index]
+    return mixed_x, y_a, y_b, lam
+
+def mixup_criterion(criterion, pred, y_a, y_b, lam):
+    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
+
+def train_epoch(model, loader, criterion, optimizer, device, epoch, use_mixup=False, noise_std=0.0):
     """Train for one epoch."""
     model.train()
     
@@ -123,11 +140,22 @@ def train_epoch(model, loader, criterion, optimizer, device, epoch):
     for images, labels in pbar:
         images = images.to(device)
         labels = labels.to(device)
-        
+           # Add Gaussian noise
+        if noise_std > 0:
+            noise = torch.randn_like(images) * noise_std
+            images = images + noise
         # Forward pass
         outputs = model(images)
         loss = criterion(outputs, labels)
-        
+        if use_mixup and np.random.rand() > 0.8:
+            images, labels_a, labels_b, lam = mixup_data(images, labels, alpha=0.4)
+            outputs = model(images)
+            loss = mixup_criterion(criterion, outputs, labels_a, labels_b, lam)
+            actual_labels = labels_a if lam > 0.5 else labels_b
+        else:
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            actual_labels = labels
         # Backward pass
         optimizer.zero_grad()
         loss.backward()
@@ -201,26 +229,26 @@ def validate(model, loader, criterion, device, epoch):
     
     return metrics, np.array(all_labels), np.array(all_preds)
 
-def train(data_dir='ADNI/AD_NC', batch_size=32, num_epochs=10, lr=3e-5, device='cuda', save_dir='checkpoints', resume_from=None, drop_path_rate=0.1, layer_scale=1e-6, weight_decay=0.1):
+def train(data_dir='ADNI/AD_NC', batch_size=32, num_epochs=10, lr=3e-5, device='cuda', save_dir='checkpoints', resume_from=None, drop_path_rate=0.1, layer_scale=1e-6, weight_decay=0.1, use_mixup=False):
     device = torch.device(device if torch.cuda.is_available() else 'cpu')
     
     # Dataloaders
     train_loader, test_loader = make_dataloaders(data_dir, batch_size=batch_size, img_size=224)
     if resume_from is None:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_dir = os.path.join(save_dir, f'ConvNeXt_a_bit_smaller_{timestamp}')
+        save_dir = os.path.join(save_dir, f'ConvNeXt_big_and_odd_{timestamp}')
         os.makedirs(save_dir, exist_ok=True)
     else:
         # If resuming, use the same directory as the checkpoint
         save_dir = os.path.dirname(resume_from)
     # Model
-    model = modules.convnext_small(drop_path_rate, layer_scale).to(device)
+    model = modules.convnext_2(drop_path_rate, layer_scale).to(device)
 
     best_val_acc = 0.0
     start_epoch = 1
 
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.05)
-    optimizer = optim.AdamW(model.parameters(),lr=lr,weight_decay=weight_decay,betas=(0.9, 0.999))
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.AdamW(model.parameters(),lr=lr)
     scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-6)
     if resume_from is not None:
         start_epoch, best_val_acc, loaded_metrics = load_checkpoint(
@@ -234,7 +262,7 @@ def train(data_dir='ADNI/AD_NC', batch_size=32, num_epochs=10, lr=3e-5, device='
         'train_auc': [], 'val_auc': []
     }
     for epoch in range(start_epoch, num_epochs + 1):
-        train_metrics = train_epoch(model, train_loader, criterion, optimizer, device, epoch)
+        train_metrics = train_epoch(model, train_loader, criterion, optimizer, device, epoch, use_mixup=use_mixup)
         
         # Validate
         val_metrics, val_labels, val_preds = validate(model, test_loader, criterion, device, epoch)
@@ -360,8 +388,8 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         if sys.argv[1] == '--checkpoint' and len(sys.argv) > 2:
             checkpoint_path = sys.argv[2]
-            model, history = train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=100, lr=1e-4, drop_path_rate=0.5, layer_scale=1e-6, weight_decay=0.2, resume_from=checkpoint_path)
+            model, history = train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=200, lr=1e-3, drop_path_rate=0.0, layer_scale=1e-6, weight_decay=0.0, resume_from=checkpoint_path, use_mixup=False)
         else:
             print("Usage: python train.py [--checkpoint checkpoint_path]")
     else:
-        model, history = train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=100, lr=1e-4, drop_path_rate=0.5, layer_scale=1e-6, weight_decay=0.2)
+        model, history = train(data_dir='ADNI/AD_NC', batch_size=16, num_epochs=200, lr=1e-3, drop_path_rate=0.0, layer_scale=1e-6, weight_decay=0.0, use_mixup=False)
