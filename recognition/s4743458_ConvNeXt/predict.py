@@ -11,6 +11,7 @@ import modules
 from torchvision import transforms
 from tqdm import tqdm
 import json
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 from datetime import datetime
 
 class Predictor:
@@ -21,7 +22,7 @@ class Predictor:
         self.class_names = ['AD', 'NC']
         
         # Initialize model
-        self.model = modules.convnext_small().to(self.device)
+        self.model = modules.convnext_medium().to(self.device)
         
         # Load checkpoint
         self.load_checkpoint(checkpoint_path)
@@ -53,74 +54,84 @@ class Predictor:
         """Load and preprocess a single image."""
         image = Image.open(image_path).convert('L')  # Convert to grayscale
         image_tensor = self.transform(image).unsqueeze(0)  # Add batch dimension
-        return image_tensor, image
+        return image_tensor.to(self.device)
     
-    def predict_single(self, image_path, return_probs=True):
-        """Predict on a single image."""
-        image_tensor, original_image = self.load_image(image_path)
-        image_tensor = image_tensor.to(self.device)
-        
+    def predict(self, image_path):
         with torch.no_grad():
-            outputs = self.model(image_tensor)
+            tensor = self.load_image(image_path)
+            outputs = self.model(tensor)
             probs = torch.softmax(outputs, dim=1)
-            pred_class = torch.argmax(probs, dim=1).item()
-            confidence = probs[0, pred_class].item()
-        
-        result = {
-            'predicted_class': self.class_names[pred_class],
-            'predicted_index': pred_class,
-            'confidence': confidence,
-            'probabilities': {
-                'AD': probs[0, 0].item(),
-                'NC': probs[0, 1].item()
-            }
-        }
-        
-        if return_probs:
-            return result, original_image
-        return result
+            pred = torch.argmax(probs, dim=1).item()
+        return pred, probs[0].cpu().numpy()
     
-    def predict_batch(self, image_paths):
-        """Predict on multiple images."""
+    def evaluate_directory(self, test_dir, output_path="pedictions.json"):
+        y_true, y_pred = [], []
         results = []
-        
-        print(f"Processing {len(image_paths)} images...")
-        for image_path in tqdm(image_paths):
-            try:
-                result = self.predict_single(image_path, return_probs=False)
-                result['image_path'] = str(image_path)
-                results.append(result)
-            except Exception as e:
-                print(f"Error processing {image_path}: {str(e)}")
-                results.append({
-                    'image_path': str(image_path),
-                    'error': str(e)
-                })
-        
-        return results
-    
-    def predict_directory(self, directory_path, recursive=False):
-        """Predict on all images in a directory."""
-        directory = Path(directory_path)
-        
-        # Supported image extensions
-        extensions = ['.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.tif']
-        
-        # Find all images
-        if recursive:
-            image_paths = []
-            for ext in extensions:
-                image_paths.extend(directory.rglob(f'*{ext}'))
-        else:
-            image_paths = []
-            for ext in extensions:
-                image_paths.extend(directory.glob(f'*{ext}'))
-        
-        if not image_paths:
-            print(f"No images found in {directory_path}")
-            return []
-        
-        return self.predict_batch(image_paths)
+        test_dir = Path(test_dir)
+
+        # Collect images from subfolders named after class labels
+        for class_name in self.class_names:
+            class_path = test_dir / class_name
+            if not class_path.exists():
+                print(f"Warning: Missing class folder {class_path}")
+                continue
+            image_paths = list(class_path.glob("*"))
+            print(f"Processing {len(image_paths)} images in {class_name}...")
+
+            for img_path in tqdm(image_paths):
+                try:
+                    pred_idx, probs = self.predict(img_path)
+                    y_true.append(self.class_names.index(class_name))
+                    y_pred.append(pred_idx)
+                    results.append({
+                        'image_path': str(img_path),
+                        'true_class': class_name,
+                        'predicted_class': self.class_names[pred_idx],
+                        'confidence_AD': float(probs[0]),
+                        'confidence_NC': float(probs[1])
+                    })
+                except Exception as e:
+                    print(f"Error processing {img_path}: {str(e)}")
+
+        # Compute metrics
+        acc = accuracy_score(y_true, y_pred)
+        cm = confusion_matrix(y_true, y_pred)
+        report = classification_report(
+            y_true, y_pred, target_names=self.class_names, output_dict=True
+        )
+
+        print(f"\nAccuracy: {acc:.4f}")
+        print("Confusion Matrix:\n", cm)
+        print("Classification Report:\n", json.dumps(report, indent=2))
+
+        # Save confusion matrix as image
+        plt.figure(figsize=(5, 4))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                    xticklabels=self.class_names, yticklabels=self.class_names)
+        plt.xlabel("Predicted")
+        plt.ylabel("True")
+        plt.title(f"Confusion Matrix (Accuracy={acc:.2%})")
+        cm_path = Path(output_path).with_suffix('.png')
+        plt.savefig(cm_path, dpi=150, bbox_inches='tight')
+        plt.close()
+
+        # Save all results to JSON
+        output_data = {
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'accuracy': acc,
+            'confusion_matrix': cm.tolist(),
+            'classification_report': report,
+            'total_samples': len(y_true),
+            'predictions': results
+        }
+
+        with open(output_path, 'w') as f:
+            json.dump(output_data, f, indent=2)
+
+        print(f"\nResults saved to {output_path}")
+        print(f"Confusion matrix saved to {cm_path}")
+
+        return acc, cm, report
     
     def visualize_prediction(self, image_path, save_path=None):
         """Visualize prediction with confidence scores."""
@@ -198,53 +209,14 @@ class Predictor:
             print(f"  Average confidence: {output_data['summary']['average_confidence']:.2%}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description='Predict AD/NC classification using trained ConvNeXt model')
-    
-    parser.add_argument('--model', type=str, required=True,
-                       help='Path to model checkpoint (.pth file)')
-    parser.add_argument('--output', type=str, default=None,
-                       help='Path to directory for output')
-    parser.add_argument('--image', type=str, default=None,
-                       help='Path to single image for prediction')
-    parser.add_argument('--directory', type=str, default=None,
-                       help='Path to directory containing images')
-    args = parser.parse_args()
-    
-    # Validate inputs
-    if args.image is None and args.directory is None:
-        parser.error("Either --image or --directory must be specified")
-    # Initialize predictor
-    predictor = Predictor(args.model, device='cuda')
-    
-    # Single image prediction
-    if args.image:
-        print(f"Predicting on single image: {args.image}\n")
-        
-        if args.output:
-            result = predictor.visualize_prediction(args.image, save_path=args.output)
-        else:
-            result = predictor.predict_single(args.image, return_probs=False)
-        
-        print("\nPrediction Result:")
-        print(f"  Image: {args.image}")
-        print(f"  Predicted Class: {result['predicted_class']}")
-        print(f"  Confidence: {result['confidence']:.2%}")
-        print(f"  Probabilities:")
-        for cls, prob in result['probabilities'].items():
-            print(f"    {cls}: {prob:.2%}")
-    
-    # Directory prediction
-    elif args.directory:
-        print(f"Predicting on directory: {args.directory}")
-        
-        results = predictor.predict_directory(args.directory)
-        
-        if results:
-            predictor.save_results(results, args.output)
-        else:
-            print("No predictions made.")
-
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Evaluate ConvNeXt model on AD/NC test dataset")
+    parser.add_argument("--model", required=True, help="Path to model checkpoint (.pth)")
+    parser.add_argument("--output", default="evaluation_results.json", help="Path to output JSON")
+    args = parser.parse_args()
+
+    evaluator = Predictor(args.model)
+    evaluator.evaluate_directory('ADNI/AD_NC/test', args.output)
