@@ -132,6 +132,16 @@ def convnext_small(drop_path_rate: float = 0.2, layer_scale: float = 1e-6):
         layer_scale_init=layer_scale,
     ).to(device)
 
+def convnext_small_2(drop_path_rate: float = 0.2, layer_scale: float = 1e-6):
+    return ConvNeXt(
+        in_chans=1,
+        depths=[3,3, 9, 3],
+        dims=[72, 144, 288, 576],
+        num_classes=2,
+        drop_path_prob=drop_path_rate,
+        layer_scale_init=layer_scale,
+    ).to(device)
+
 
 def convnext_medium(drop_path_rate: float = 0.2, layer_scale: float = 1e-6):
     return ConvNeXt(

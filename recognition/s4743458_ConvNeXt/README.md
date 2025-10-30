@@ -86,25 +86,45 @@ To train the ConvNeXt model, the following command is used:
 This trains the model on the ADNI dataset, saving the model as checkpoints to `/checkpoints/{model name}`. If the checkpoint argument is included, this resumes training from the specified checkpoint.
 The training script additionally saves a confusion matrix and training results images to the save directory
 
+### Parameters
+the training uses the AdamW optimiser, a version of the Adam optimiser where weight decay does not accumulate in the momentum nor variance [2]. A learning rate scheduler is also used, which changes the learning rate according to a cosine function to improve the chance of optimal gradient descent.
+
 ## Predicting
 To predict results with the ConvNeXt model, this can be done using the following command.
 
-`python predict.py [--model model_name] [--output output_path] [--image image_path] [--directory directory_path]`
+`python predict.py [--model model_name] [--output output_path]`
 
-where image_path or diretory_path are optional such that one must be included. This either predicts all images in a directory or only the one image passed in. The output_path specifies where prediction results will be saved to.
+Where model is required, and output can be specified to define where the json of prediction results will be saved.
+These generated results have a confusion matrix, as well as the predictions made for each image. These results also include a report on successful predictions, and per class prediction statistics.
 ## Results
 ### Early Results
-Initial Training of the model resulted in accuracies of >80%, peaking at around 75%. This was due to overfitting of the training set, which can be seen looking at the epochs over training.
+The first model was 
+Initial Training of the model resulted in validation accuracies of <80%, peaking at around 74%. This was due to overfitting of the training set, which can be seen looking at the epochs over training.
 
-![alt text](checkpoints/convnext_small_20251020_095048/training_history.png)
+![alt text](checkpoints/convnext_nano_20251019_130539/training_history.png)
 
-This shows training accuracy continuing to rise while validation accuracy fluctuates. To fix this, several attempts were made. Firstly the model size was reduced as this is a possible contributing factor. However, this did not show any significant improvements. The drop path was then greatly increased, where the model was found to never train successfully, i.e. beat random chance or to overfit again. This was also extended with a dropout, mixup and gaussian noise additions with many epochs to attampt to train, and the model still peaked at ~75% accuracy.
+This shows training accuracy continuing to rise while validation accuracy fluctuates, after less than 10 epochs. This shows clear overfitting, while the training set was able to reach the desired accuracy, meaning training the model was able to be done successfully, but parameters needed tuning. To fix this, several attempts were made through increasing regularisation techniques.
 
-Next a different approach was taken, where a much larger model was implemented, due to the large training dataset. This was done with $\frac{5}{3}$ times dimensions size, 
+Firstly drop_path rate was increased, which did not have a strong enough impact to reduce the effects without stopping learning.
+
+Next, a dropout was added before the linear head. This regularises the features going into this final classification layer by randomely zeroing some of the elements of the input. 
+
+A weight decay was also added, which adds a penalty to the loss function based on the model's weights. These both were done to help improve generalisation toward new data. 
+
+Next mixup augmentation was implemented, which mixes up the features and corresponding labels with a probability.
+
+Going forward, this allowed for a slightly larger model to be used. This model was defined with `depths=[3, 3, 27, 3], dims=[128, 256, 512, 1024]`, corresponding to dimensions used in [1] for convnext_base, however training still overfitted after reaching over 70% accuracy on the validation set, but allowing the training set accuracy to reach over 98% due to the larger model size. 
+
+Model size was again reduced from these findings, however from here the regularisation added had been too strong, preventing the model from beginning training, always predicting at a random chance, with the loss also matching random chance for binary classification (~0.693).
+
+This meant some regularisation had to be dropped, which started with the mixup, and some train augmentations. This allowed to model to train again, with less harsh overfitting than seen in previous training.
+
 
 ### Final Results
+The final model was a custom size, made slightly larger than the ConvNeXt tiny and smaller than the ConvNeXt small seen in [1].
 
-### Plots
 
 ## References
 [1] Liu, Z., Mao, H., Wu, C.-Y., Feichtenhofer, C., Darrell, T. and Xie, S. (2022). A ConvNet for the 2020s. [online] Available at: https://arxiv.org/pdf/2201.03545.
+
+[2] Pytorch.org. (2024). AdamW — PyTorch 2.7 documentation. [online] Available at: https://docs.pytorch.org/docs/stable/generated/torch.optim.AdamW.html.
