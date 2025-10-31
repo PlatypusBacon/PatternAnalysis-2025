@@ -418,10 +418,6 @@ def train(data_dir='ADNI/AD_NC',
         
         # Save checkpoint
         is_best = val_metrics['accuracy'] > best_val_acc
-        if is_best:
-            best_val_acc = val_metrics['accuracy']
-            print(f"\n🎉 New best validation accuracy: {best_val_acc:.4f}")
-        
         save_checkpoint(model, optimizer, scheduler, epoch, val_metrics, save_dir, is_best)
         
         # Plot every 10 epochs
