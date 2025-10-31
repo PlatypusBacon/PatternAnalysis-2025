@@ -10,7 +10,7 @@ The network also uses GELU activations instead of ReLU, and Layer in in place of
 
 The full ConvNeXt architecture can be seen below:
 
-![ConvNeXt architecture](ConvNeXt-structure-1.webp)
+![ConvNeXt architecture](images/ConvNeXt-structure-1.webp)
 
 This shows several other key innovations in ConvNeXt, namely the four stage structure of ConvNeXt blocks.
 
@@ -18,7 +18,7 @@ This shows several other key innovations in ConvNeXt, namely the four stage stru
 
 The ConvNeXt block is defined as seen below:
 
-![ConvNeXt block](ConvNeXt-structure-2.webp)
+![ConvNeXt block](images/ConvNeXt-structure-2.webp)
 
 ### ConvNeXt class
 
@@ -72,7 +72,7 @@ To improve generalisation and reduce overfitting from the model, data augmentati
 These were performed as follows. These represent noise that may be present in actual MRI images for training as explained below:
 
 * Horizontal flip - used as images may be flipped in test set
-* Rotation - used as images may be ooriented differently
+* Rotation - used as images may be oriented differently
 * Colour Jitter - used to brighten sections of MRI for noise
 * Affine - used as scale may change across images
 * Gaussian Blur - used as resolution may change or sections may be blurred
@@ -81,12 +81,12 @@ These augmentations change the images loaded and allow for a much more regularis
 ## Training
 To train the ConvNeXt model, the following command is used:
 
-`python train.py [--checkpoint checkpoint_path]`
+```python train.py [--checkpoint checkpoint_path]```
 
-This trains the model on the ADNI dataset, saving the model as checkpoints to `/checkpoints/{model name}`. If the checkpoint argument is included, this resumes training from the specified checkpoint.
+This trains the model on the ADNI dataset, saving the model as checkpoints to ```/checkpoints/{model name}```. If the checkpoint argument is included, this resumes training from the specified checkpoint.
 The training script additionally saves a confusion matrix and training results images to the save directory
 
-### Parameters
+### Additions
 the training uses the AdamW optimiser, a version of the Adam optimiser where weight decay does not accumulate in the momentum nor variance [2]. A learning rate scheduler is also used, which changes the learning rate according to a cosine function to improve the chance of optimal gradient descent.
 
 ## Predicting
@@ -99,9 +99,9 @@ These generated results have a confusion matrix, as well as the predictions made
 ## Results
 ### Early Results
 The first model was 
-Initial Training of the model resulted in validation accuracies of <80%, peaking at around 74%. This was due to overfitting of the training set, which can be seen looking at the epochs over training.
+Initial Training of the model resulted in validation accuracies of <80%, peaking at around 74% due to luck in the gradient descent. This was due to overfitting of the training set, which can be seen looking at the epochs over training.
 
-![alt text](checkpoints/convnext_nano_20251019_130539/training_history.png)
+![alt text](images/nano_initial_training.png)
 
 This shows training accuracy continuing to rise while validation accuracy fluctuates, after less than 10 epochs. This shows clear overfitting, while the training set was able to reach the desired accuracy, meaning training the model was able to be done successfully, but parameters needed tuning. To fix this, several attempts were made through increasing regularisation techniques.
 
@@ -117,12 +117,20 @@ Going forward, this allowed for a slightly larger model to be used. This model w
 
 Model size was again reduced from these findings, however from here the regularisation added had been too strong, preventing the model from beginning training, always predicting at a random chance, with the loss also matching random chance for binary classification (~0.693).
 
-This meant some regularisation had to be dropped, which started with the mixup, and some train augmentations. This allowed to model to train again, with less harsh overfitting than seen in previous training.
+This meant some regularisation had to be dropped, which started with the mixup, and some train augmentations. This allowed to model to train again, with less harsh overfitting than seen in previous training. The next training achieved a much greater stability, but due to the large amount of regularisation only reached an accuracy of ~72%. This can be seen below in the training history.
+
+![alt text](images/second_training_history.png)
 
 
 ### Final Results
-The final model was a custom size, made slightly larger than the ConvNeXt tiny and smaller than the ConvNeXt small seen in [1].
+The final model was a custom size, made slightly larger than the ConvNeXt tiny and smaller than the ConvNeXt small seen in [1]. This was done to allow for the higher accuracy of the larger model while minimising overfitting. This used the following parameters: `depths=[3,3, 9, 3],dims=[72, 144, 288, 576]`
 
+![alt text](images/final1_training_history.png)
+![alt text](images/final2_training_history.png)
+
+This model trained to a final accuracy of 75.97%, after stabilising. This was done in two seperate training sessions as seen above. While this does not achieve the desired 80% accuracy, due to time and data constraints this was the best able to be achieved. The summarised prediction results as well a confusion matrix can be seen below
+
+![alt text](images/confusion_matrix_final.png)
 
 ## References
 [1] Liu, Z., Mao, H., Wu, C.-Y., Feichtenhofer, C., Darrell, T. and Xie, S. (2022). A ConvNet for the 2020s. [online] Available at: https://arxiv.org/pdf/2201.03545.

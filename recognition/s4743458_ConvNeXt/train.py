@@ -325,7 +325,7 @@ def train(data_dir='ADNI/AD_NC',
     
     # Model with REDUCED regularization
     print("Creating model...")
-    model = modules.convnext_small_2(
+    model = modules.convnext_medium(
         drop_path_rate=drop_path_rate, 
         layer_scale=layer_scale,
     ).to(device)
@@ -462,7 +462,7 @@ if __name__ == "__main__":
             model, history = train(
                 data_dir='ADNI/AD_NC',
                 batch_size=16,
-                num_epochs=60,
+                num_epochs=100,
                 lr=1e-4, 
                 drop_path_rate=0.2,
                 layer_scale=1e-6,
@@ -477,7 +477,7 @@ if __name__ == "__main__":
         model, history = train(
             data_dir='ADNI/AD_NC',
             batch_size=16,
-            num_epochs=60,
+            num_epochs=100,
             lr=1e-4,
             drop_path_rate=0.2,
             layer_scale=1e-6,

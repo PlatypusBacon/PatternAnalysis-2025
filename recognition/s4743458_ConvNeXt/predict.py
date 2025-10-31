@@ -22,7 +22,7 @@ class Predictor:
         self.class_names = ['AD', 'NC']
         
         # Initialize model
-        self.model = modules.convnext_medium().to(self.device)
+        self.model = modules.convnext_small_2().to(self.device)
         
         # Load checkpoint
         self.load_checkpoint(checkpoint_path)
